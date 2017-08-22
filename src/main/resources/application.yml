@@ -1,0 +1,10 @@
+server:
+  port: 5566
+endpoints:
+  enabled: true
+debug: true
+#zuul:
+#  routes:
+#    users:
+#      path: /v*/**
+#      url: /**
