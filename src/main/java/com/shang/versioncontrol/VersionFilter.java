@@ -10,7 +10,6 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import javax.annotation.PostConstruct;
-import javax.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +46,6 @@ public class VersionFilter extends ZuulFilter {
     @Override
     public Object run() {
         RequestContext currentContext = RequestContext.getCurrentContext();
-        HttpServletRequest request = currentContext.getRequest();
         String url = (String) currentContext.get(FORWARD_TO_KEY);
         while (true) {
             VersionEntry versionEntry = globVersions.get(url);
@@ -83,15 +81,13 @@ public class VersionFilter extends ZuulFilter {
                 int version = Integer.parseInt(strings[1].substring(1));
                 StringBuilder stringBuilder = new StringBuilder();
                 for (int i = 1; i < strings.length - 1; i++) {
-                    stringBuilder.append("/" + strings[i + 1]);
+                    stringBuilder.append("/");
+                    stringBuilder.append(strings[i + 1]);
                 }
                 versionEntry.setCellUrl(strings);
                 versionEntry.setRealUrl(stringBuilder.toString());
                 versionEntry.setUrl(url);
                 versionEntry.setVersion(version);
-                System.out.println("real== " + stringBuilder);
-                System.out.println("version== " + version);
-
             }
             return versionEntry;
         }
