@@ -1,11 +1,11 @@
 server:
   port: 5566
-#  servlet-path: /spring
+  servlet-path: /spring
 endpoints:
   enabled: true
 debug: true
 zuul:
-#  servlet-path: /
+  servlet-path: /
 #zuul:
 #  routes:
 #    users:
