@@ -10,3 +10,4 @@ server:
 zuul:
   servlet-path: /  #zuul 设置成默认
 ```
+![](doc/版本控制.svg)
