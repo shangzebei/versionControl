@@ -1,0 +1,4 @@
+```
+zuul:
+  servlet-path: /api
+```

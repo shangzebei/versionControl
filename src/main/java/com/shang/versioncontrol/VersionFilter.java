@@ -4,6 +4,7 @@ import com.netflix.zuul.ZuulFilter;
 import com.netflix.zuul.context.RequestContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.netflix.zuul.filters.support.FilterConstants;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
@@ -26,6 +27,11 @@ public class VersionFilter extends ZuulFilter {
     @Autowired
     private RequestMappingHandlerMapping handlerMapping;
 
+    @Autowired
+    private Environment environment;
+
+    private String defPath = "";
+
     HashMap<String, VersionEntry> globVersions = new HashMap<>();
 
     @Override
@@ -47,6 +53,9 @@ public class VersionFilter extends ZuulFilter {
     public Object run() {
         RequestContext currentContext = RequestContext.getCurrentContext();
         String url = (String) currentContext.get(FORWARD_TO_KEY);
+        if (!defPath.equals("")) {
+            url = url.replaceFirst(defPath, "");
+        }
         while (true) {
             VersionEntry versionEntry = globVersions.get(url);
             if (versionEntry == null) {
@@ -55,7 +64,11 @@ public class VersionFilter extends ZuulFilter {
                     break;
                 }
             } else {
-                currentContext.set(FORWARD_TO_KEY,url);
+                if (!defPath.equals("")) {
+                    currentContext.set(FORWARD_TO_KEY, defPath + url);
+                } else {
+                    currentContext.set(FORWARD_TO_KEY, url);
+                }
                 break;
             }
         }
@@ -64,6 +77,10 @@ public class VersionFilter extends ZuulFilter {
 
     @PostConstruct
     private void initURL() {
+        String environmentProperty = environment.getProperty("server.servlet-path");
+        if (environmentProperty != null) {
+            defPath = environmentProperty;
+        }
         Map<RequestMappingInfo, HandlerMethod> handlerMethods = handlerMapping.getHandlerMethods();
         Set<RequestMappingInfo> requestMappingInfos = handlerMethods.keySet();
         for (RequestMappingInfo requestMappingInfo : requestMappingInfos) {
@@ -100,10 +117,10 @@ public class VersionFilter extends ZuulFilter {
      */
     protected String minusVersion(String url) {
         VersionEntry versionEntry = dealUrl(url);
-        if (versionEntry == null||versionEntry.getVersion()==0) {
+        if (versionEntry == null || versionEntry.getVersion() == 0) {
             return null;
         }
-        return "/v"+(versionEntry.getVersion() - 1) + versionEntry.getRealUrl();
+        return "/v" + (versionEntry.getVersion() - 1) + versionEntry.getRealUrl();
     }
 
 }
