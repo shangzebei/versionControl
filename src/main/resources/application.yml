@@ -1,13 +1,7 @@
 server:
-  port: 5566
-  servlet-path: /spring
-endpoints:
-  enabled: true
-debug: true
+    port: 8089
+    servlet-path: /galaxy-gateway
 zuul:
   servlet-path: /
-#zuul:
-#  routes:
-#    users:
-#      path: /v*/**
-#      url: /**
+  ignore-security-headers: false
+  FormBodyWrapperFilter.pre.disable: true
