@@ -4,4 +4,4 @@ server:
 zuul:
   servlet-path: /
   ignore-security-headers: false
-  FormBodyWrapperFilter.pre.disable: true
+  FormBodyWrapperFilter.pre.disable: true #必须
