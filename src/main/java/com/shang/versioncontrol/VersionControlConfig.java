@@ -2,17 +2,25 @@ package com.shang.versioncontrol;
 
 import com.netflix.zuul.ZuulFilter;
 import com.netflix.zuul.context.RequestContext;
+import com.netflix.zuul.http.ZuulServlet;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cloud.netflix.zuul.EnableZuulProxy;
+import org.springframework.boot.web.servlet.ServletRegistrationBean;
+import org.springframework.cloud.netflix.zuul.EnableZuulServer;
+import org.springframework.cloud.netflix.zuul.filters.Route;
+import org.springframework.cloud.netflix.zuul.filters.RouteLocator;
+import org.springframework.cloud.netflix.zuul.filters.ZuulProperties;
 import org.springframework.cloud.netflix.zuul.filters.support.FilterConstants;
+import org.springframework.cloud.netflix.zuul.util.RequestUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.util.UrlPathHelper;
 
 import javax.annotation.PostConstruct;
+import javax.servlet.MultipartConfigElement;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -25,13 +33,22 @@ import static org.springframework.cloud.netflix.zuul.filters.support.FilterConst
  * Created by shangzebei on 2017/8/21.
  */
 @Configuration
-@EnableZuulProxy
+@EnableZuulServer
 public class VersionControlConfig {
     @Bean
-    VersionFilter versionFilter() {
-        return new VersionFilter();
+    VersionFilter versionFilter(RouteLocator routeLocator, ZuulProperties zuulProperties) {
+        return new VersionFilter(zuulProperties, routeLocator);
     }
 
+    @Bean
+    public ServletRegistrationBean zuulServlet(ZuulProperties zuulProperties) {
+        ServletRegistrationBean servlet = new ServletRegistrationBean(new ZuulServlet(),
+                zuulProperties.getServletPattern());
+        MultipartConfigElement multipartConfig = new MultipartConfigElement("",52428800,52428800,0);
+        servlet.setMultipartConfig(multipartConfig);
+        servlet.addInitParameter("buffer-requests", "false");
+        return servlet;
+    }
 
     private static class VersionEntry {
         private int version;
@@ -72,24 +89,6 @@ public class VersionControlConfig {
         }
     }
 
-    private interface VersionCache {
-        /**
-         * get urlMapping from versionCache
-         *
-         * @param key
-         * @return
-         */
-        String getCache(String key);
-
-        /**
-         * set url to versionCache
-         *
-         * @param key
-         * @param value
-         */
-        void setCache(String key, String value);
-    }
-
     private static class VersionFilter extends ZuulFilter {
         @Autowired
         private RequestMappingHandlerMapping handlerMapping;
@@ -97,10 +96,18 @@ public class VersionControlConfig {
         @Autowired
         private Environment environment;
 
-        @Autowired(required = false)
-        private VersionCache versionCache;
-
         private String defPath = "";
+
+        private ZuulProperties properties;
+        private RouteLocator routeLocator;
+
+        public VersionFilter(ZuulProperties properties, RouteLocator routeLocator) {
+            this.properties = properties;
+            this.routeLocator = routeLocator;
+        }
+
+        private UrlPathHelper urlPathHelper = new UrlPathHelper();
+
 
         HashMap<String, VersionEntry> globVersions = new HashMap<>();
 
@@ -121,50 +128,47 @@ public class VersionControlConfig {
 
         @Override
         public Object run() {
+            ////////////////
+            RequestContext ctx = RequestContext.getCurrentContext();
+            final String requestURI = this.urlPathHelper.getPathWithinApplication(ctx.getRequest());
+            Route route = this.routeLocator.getMatchingRoute(requestURI);
+            String fallBackUri = requestURI;
+
+            if (RequestUtils.isZuulServletRequest()) {
+                fallBackUri = fallBackUri.replaceFirst(this.properties.getServletPath(), "");
+            } else {
+                fallBackUri = fallBackUri.replaceFirst(this.defPath, "");
+            }
+            if (!fallBackUri.startsWith("/")) {
+                fallBackUri = "/" + fallBackUri;
+            }
+            String forwardURI = defPath + fallBackUri;
+            forwardURI = forwardURI.replaceAll("//", "/");
+            ctx.set(FORWARD_TO_KEY, forwardURI);
+
+            ////////////////
             RequestContext currentContext = RequestContext.getCurrentContext();
-            String relUrl = getRelUrl(currentContext);
-            String _relUrl = relUrl;//start
-            if (versionCache != null) {
-                String cacheUrl = this.versionCache.getCache(relUrl);
-                if (cacheUrl != null) {//find
-                    setDesUrl(currentContext, cacheUrl);
-                    return null;
-                }
-            }
-            while (true) {
-                VersionEntry versionEntry = globVersions.get(relUrl);
-                if (versionEntry == null) {
-                    relUrl = minusVersion(relUrl);
-                    if (relUrl == null) {
-                        break;
-                    }
-                } else {
-                    if (versionCache != null) {
-                        versionCache.setCache(_relUrl, relUrl);
-                    }
-                    setDesUrl(currentContext, relUrl);
-                    break;
-                }
-            }
-
-            return null;
-        }
-
-        private String getRelUrl(RequestContext currentContext) {
             String url = (String) currentContext.get(FORWARD_TO_KEY);
             if (!defPath.equals("")) {
                 url = url.replaceFirst(defPath, "");
             }
-            return url;
-        }
-
-
-        private void setDesUrl(RequestContext currentContext, String url) {
-            if (!defPath.equals("")) {
-                currentContext.set(FORWARD_TO_KEY, defPath + url);
-            } else {
-                currentContext.set(FORWARD_TO_KEY, url);
+            while (true) {
+                VersionEntry versionEntry = globVersions.get(url);
+                if (versionEntry == null) {
+                    url = minusVersion(url);
+                    if (url == null) {
+                        break;
+                    }
+                } else {
+                    if (!defPath.equals("")) {
+                        currentContext.set(FORWARD_TO_KEY, defPath + url);
+                    } else {
+                        currentContext.set(FORWARD_TO_KEY, url);
+                    }
+                    break;
+                }
             }
+            return null;
         }
 
         @PostConstruct
@@ -212,11 +216,7 @@ public class VersionControlConfig {
             if (versionEntry == null || versionEntry.getVersion() == 0) {
                 return null;
             }
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("/v");
-            stringBuilder.append(versionEntry.getVersion() - 1);
-            stringBuilder.append(versionEntry.getRealUrl());
-            return stringBuilder.toString();
+            return "/v" + (versionEntry.getVersion() - 1) + versionEntry.getRealUrl();
         }
     }
 
